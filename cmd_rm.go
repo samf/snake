@@ -55,6 +55,10 @@ func (r *RmCmd) Run(cfg *Config) error {
 			fmt.Println("failed")
 			return fmt.Errorf("%s: %w", path, err)
 		}
+		if err := os.Remove(abs); err != nil {
+			fmt.Println("uploaded, but could not remove local file")
+			return fmt.Errorf("%s: %w", path, err)
+		}
 		fmt.Println("done")
 	}
 	return nil
