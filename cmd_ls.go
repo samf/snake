@@ -13,7 +13,8 @@ import (
 )
 
 type LsCmd struct {
-	Dir string `arg:"" optional:"" help:"Directory to list (default: current directory)."`
+	Dir       string `arg:"" optional:"" help:"Directory to list (default: current directory)."`
+	Recursive bool   `short:"r" help:"Include files in subdirectories."`
 }
 
 type lsFile struct {
@@ -60,13 +61,17 @@ func (l *LsCmd) Run(cfg *Config) error {
 		dir = abs
 	}
 
-	files, err := fetchFilesByPath(cfg, dir)
+	files, err := fetchFilesByPath(cfg, dir, l.Recursive)
 	if err != nil {
 		return err
 	}
 
 	if len(files) == 0 {
-		fmt.Printf("no files under %s\n", dir)
+		if l.Recursive {
+			fmt.Printf("no files under %s\n", dir)
+		} else {
+			fmt.Printf("no files in %s\n", dir)
+		}
 		return nil
 	}
 
@@ -104,12 +109,16 @@ func (l *LsCmd) Run(cfg *Config) error {
 	return nil
 }
 
-func fetchFilesByPath(cfg *Config, dir string) ([]lsFile, error) {
+func fetchFilesByPath(cfg *Config, dir string, recursive bool) ([]lsFile, error) {
 	var all []lsFile
 	cursor := ""
+	recursiveParam := ""
+	if recursive {
+		recursiveParam = "&recursive=true"
+	}
 	for {
-		u := fmt.Sprintf("%s/can/%s/files?path=%s&limit=200",
-			cfg.Server, cfg.CanID, url.QueryEscape(dir))
+		u := fmt.Sprintf("%s/can/%s/files?path=%s&limit=200%s",
+			cfg.Server, cfg.CanID, url.QueryEscape(dir), recursiveParam)
 		if cursor != "" {
 			u += "&cursor=" + url.QueryEscape(cursor)
 		}
