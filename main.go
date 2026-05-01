@@ -6,6 +6,7 @@ import (
 
 var cli struct {
 	Login LoginCmd `cmd:"" help:"Authenticate with a Snake Can server."`
+	Ls    LsCmd    `cmd:"" help:"List can files under a directory path."`
 	Rm    RmCmd    `cmd:"" help:"Upload files to the Snake Can."`
 }
 
