@@ -1,0 +1,169 @@
+package main
+
+import (
+	"encoding/json"
+	"io"
+	"mime"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"testing"
+)
+
+func TestFileMD5(t *testing.T) {
+	f, err := os.CreateTemp(t.TempDir(), "md5test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.WriteString("hello world")
+	f.Close()
+
+	// echo -n "hello world" | md5
+	const want = "5eb63bbbe01eeed093cb22bb8f5acdc3"
+	got, err := fileMD5(f.Name())
+	if err != nil {
+		t.Fatalf("fileMD5: %v", err)
+	}
+	if got != want {
+		t.Errorf("got %q, want %q", got, want)
+	}
+}
+
+func TestEscapeQuotes(t *testing.T) {
+	tests := []struct {
+		in   string
+		want string
+	}{
+		{`no special chars`, `no special chars`},
+		{`say "hello"`, `say \"hello\"`},
+		{`back\slash`, `back\\slash`},
+		{`both "and" \slash`, `both \"and\" \\slash`},
+	}
+	for _, tt := range tests {
+		if got := escapeQuotes(tt.in); got != tt.want {
+			t.Errorf("escapeQuotes(%q) = %q, want %q", tt.in, got, tt.want)
+		}
+	}
+}
+
+func TestDetectMIME_ByExtension(t *testing.T) {
+	tests := []struct {
+		ext  string
+		want string
+	}{
+		{".html", "text/html; charset=utf-8"},
+		{".json", "application/json"},
+		{".png",  "image/png"},
+		{".pdf",  "application/pdf"},
+	}
+	dir := t.TempDir()
+	for _, tt := range tests {
+		path := filepath.Join(dir, "file"+tt.ext)
+		os.WriteFile(path, []byte("data"), 0600)
+		got := detectMIME(path)
+		// Use mime package to normalise for comparison.
+		gotBase, _, _ := mime.ParseMediaType(got)
+		wantBase, _, _ := mime.ParseMediaType(tt.want)
+		if gotBase != wantBase {
+			t.Errorf("detectMIME(%q): got %q, want %q", tt.ext, got, tt.want)
+		}
+	}
+}
+
+func TestUploadFile_Success(t *testing.T) {
+	content := []byte("test file content")
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			t.Errorf("unexpected method %q", r.Method)
+		}
+		if r.Header.Get("Authorization") != "Bearer test-token" {
+			t.Errorf("missing Authorization header")
+		}
+		mr, err := r.MultipartReader()
+		if err != nil {
+			t.Fatalf("not multipart: %v", err)
+		}
+		fields := map[string]string{}
+		for {
+			part, err := mr.NextPart()
+			if err == io.EOF {
+				break
+			}
+			if err != nil {
+				t.Fatalf("multipart error: %v", err)
+			}
+			data, _ := io.ReadAll(part)
+			fields[part.FormName()] = string(data)
+		}
+		if fields["path"] == "" {
+			t.Error("missing path field")
+		}
+		if fields["checksum"] == "" {
+			t.Error("missing checksum field")
+		}
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(map[string]string{"uuid": "abc"})
+	}))
+	defer ts.Close()
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "test.txt")
+	os.WriteFile(path, content, 0600)
+
+	checksum, _ := fileMD5(path)
+	cfg := &Config{Server: ts.URL, Token: "test-token", CanID: "can-1"}
+	if err := uploadFile(cfg, path, "test.txt", dir, checksum); err != nil {
+		t.Fatalf("uploadFile: %v", err)
+	}
+}
+
+func TestUploadFile_Duplicate(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Consume body to avoid broken pipe.
+		io.Copy(io.Discard, r.Body)
+		w.WriteHeader(http.StatusConflict)
+		json.NewEncoder(w).Encode(map[string]string{"error": "file already in the can (unchanged)"})
+	}))
+	defer ts.Close()
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "dup.txt")
+	os.WriteFile(path, []byte("data"), 0600)
+
+	cfg := &Config{Server: ts.URL, Token: "tok", CanID: "can-1"}
+	err := uploadFile(cfg, path, "dup.txt", dir, "somechecksum")
+	if err == nil {
+		t.Fatal("expected error for 409, got nil")
+	}
+}
+
+func TestUploadFile_QuotaExceeded(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Consume the multipart body.
+		mr, _ := r.MultipartReader()
+		if mr != nil {
+			for {
+				p, err := mr.NextPart()
+				if err != nil {
+					break
+				}
+				io.Copy(io.Discard, p)
+			}
+		}
+		w.WriteHeader(http.StatusInsufficientStorage)
+		json.NewEncoder(w).Encode(map[string]string{"error": "storage quota exceeded"})
+	}))
+	defer ts.Close()
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "big.txt")
+	os.WriteFile(path, []byte("data"), 0600)
+
+	cfg := &Config{Server: ts.URL, Token: "tok", CanID: "can-1"}
+	err := uploadFile(cfg, path, "big.txt", dir, "checksum")
+	if err == nil {
+		t.Fatal("expected error for 507, got nil")
+	}
+}
+

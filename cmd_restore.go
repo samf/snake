@@ -97,6 +97,13 @@ func destForFile(f lsFile, fallbackDir string) string {
 }
 
 func (r *RestoreCmd) restoreFile(cfg *Config, dir, name string) error {
+	dest := filepath.Join(dir, name)
+	if !r.Force {
+		if _, err := os.Stat(dest); err == nil {
+			return fmt.Errorf("%s: already exists — use -f to force", dest)
+		}
+	}
+
 	files, err := fetchFilesByPath(cfg, dir, false)
 	if err != nil {
 		return err
@@ -110,12 +117,6 @@ func (r *RestoreCmd) restoreFile(cfg *Config, dir, name string) error {
 	}
 	if match == nil {
 		return fmt.Errorf("%s: not found in the can", name)
-	}
-	dest := filepath.Join(dir, name)
-	if !r.Force {
-		if _, err := os.Stat(dest); err == nil {
-			return fmt.Errorf("%s: already exists — use -f to force", dest)
-		}
 	}
 	fmt.Printf("restoring %s... ", dest)
 	if err := downloadFile(cfg, match.UUID, dest); err != nil {
