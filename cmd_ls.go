@@ -15,6 +15,7 @@ import (
 type LsCmd struct {
 	Dir       string `arg:"" optional:"" help:"Directory to list (default: current directory)."`
 	Recursive bool   `short:"r" help:"Include files in subdirectories."`
+	Long      bool   `short:"l" help:"Show size, uploaded date, and expiration date."`
 }
 
 type lsFile struct {
@@ -101,8 +102,13 @@ func (l *LsCmd) Run(cfg *Config) error {
 			fmt.Fprintln(w, key)
 		}
 		for _, f := range grouped[key] {
-			expires := time.UnixMilli(f.Expires).Format("Jan 2, 2006")
-			fmt.Fprintf(w, "  %s\t%s\t%s\n", f.Name, formatLsSize(f.Size), expires)
+			if l.Long {
+				uploaded := time.UnixMilli(f.Uploaded).Format("Jan 2, 2006")
+				expires := time.UnixMilli(f.Expires).Format("Jan 2, 2006")
+				fmt.Fprintf(w, "  %s\t%s\t%s\t expires %s\n", f.Name, formatLsSize(f.Size), uploaded, expires)
+			} else {
+				fmt.Fprintf(w, "  %s\n", f.Name)
+			}
 		}
 	}
 	w.Flush()
