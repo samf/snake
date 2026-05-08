@@ -11,6 +11,7 @@ import (
 type RestoreCmd struct {
 	Path      string `arg:"" optional:"" help:"File or directory to restore (default: current directory)."`
 	Recursive bool   `short:"r" help:"Include files in subdirectories."`
+	Force     bool   `short:"f" help:"Overwrite existing local files."`
 }
 
 func (r *RestoreCmd) Run(cfg *Config) error {
@@ -58,12 +59,25 @@ func (r *RestoreCmd) restoreDir(cfg *Config, dir string) error {
 		}
 		return nil
 	}
-	for _, f := range files {
-		destDir := dir
-		if f.Path != nil && *f.Path != "" {
-			destDir = *f.Path
+
+	if !r.Force {
+		var conflicts []string
+		for _, f := range files {
+			dest := destForFile(f, dir)
+			if _, err := os.Stat(dest); err == nil {
+				conflicts = append(conflicts, dest)
+			}
 		}
-		dest := filepath.Join(destDir, f.Name)
+		if len(conflicts) > 0 {
+			for _, c := range conflicts {
+				fmt.Fprintf(os.Stderr, "exists: %s\n", c)
+			}
+			return fmt.Errorf("refusing to overwrite existing files — use -f to force")
+		}
+	}
+
+	for _, f := range files {
+		dest := destForFile(f, dir)
 		fmt.Printf("restoring %s... ", dest)
 		if err := downloadFile(cfg, f.UUID, dest); err != nil {
 			fmt.Println("failed")
@@ -72,6 +86,14 @@ func (r *RestoreCmd) restoreDir(cfg *Config, dir string) error {
 		fmt.Println("done")
 	}
 	return nil
+}
+
+func destForFile(f lsFile, fallbackDir string) string {
+	dir := fallbackDir
+	if f.Path != nil && *f.Path != "" {
+		dir = *f.Path
+	}
+	return filepath.Join(dir, f.Name)
 }
 
 func (r *RestoreCmd) restoreFile(cfg *Config, dir, name string) error {
@@ -90,6 +112,11 @@ func (r *RestoreCmd) restoreFile(cfg *Config, dir, name string) error {
 		return fmt.Errorf("%s: not found in the can", name)
 	}
 	dest := filepath.Join(dir, name)
+	if !r.Force {
+		if _, err := os.Stat(dest); err == nil {
+			return fmt.Errorf("%s: already exists — use -f to force", dest)
+		}
+	}
 	fmt.Printf("restoring %s... ", dest)
 	if err := downloadFile(cfg, match.UUID, dest); err != nil {
 		fmt.Println("failed")
