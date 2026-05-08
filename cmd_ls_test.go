@@ -129,6 +129,9 @@ func TestLsCmd_TerseOutput(t *testing.T) {
 	if strings.Contains(out, "2025") || strings.Contains(out, "2026") {
 		t.Errorf("terse output should not contain dates: %q", out)
 	}
+	if strings.Contains(out, dir) {
+		t.Errorf("terse output should not contain directory path %q: %q", dir, out)
+	}
 }
 
 func TestLsCmd_LongOutput(t *testing.T) {
@@ -143,11 +146,15 @@ func TestLsCmd_LongOutput(t *testing.T) {
 	cmd := &LsCmd{Dir: dir, Long: true}
 	out := captureStdout(t, func() { cmd.Run(cfg) })
 
-	checks := []string{"report.pdf", "2.0 MB", "Jan 15, 2025", "Mar 20, 2026"}
+	checks := []string{"Name", "Size", "Uploaded", "Expires", "report.pdf", "2.0 MB", "Jan 15, 2025", "Mar 20, 2026"}
 	for _, s := range checks {
 		if !strings.Contains(out, s) {
 			t.Errorf("long output missing %q in: %q", s, out)
 		}
+	}
+	// Directory header must not appear.
+	if strings.Contains(out, dir) {
+		t.Errorf("long output should not contain directory path %q: %q", dir, out)
 	}
 }
 

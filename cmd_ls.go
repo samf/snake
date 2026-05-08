@@ -92,20 +92,30 @@ func (l *LsCmd) Run(cfg *Config) error {
 	sort.Strings(keys)
 
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
+	if l.Long {
+		fmt.Fprintf(w, "  %s\t%s\t%s\t%s\n", "Name", "Size", "Uploaded", "Expires")
+	}
 	for i, key := range keys {
-		if i > 0 {
-			fmt.Fprintln(w)
-		}
-		if key == "" {
-			fmt.Fprintln(w, "(no path)")
-		} else {
-			fmt.Fprintln(w, key)
+		// In recursive mode, print a subdirectory header for paths other than the
+		// requested directory. Use a relative path to keep output concise.
+		if l.Recursive && key != dir {
+			if i > 0 {
+				fmt.Fprintln(w)
+			}
+			label := key
+			if rel, err := filepath.Rel(dir, key); err == nil {
+				label = rel
+			}
+			if label == "" {
+				label = "(no path)"
+			}
+			fmt.Fprintln(w, label)
 		}
 		for _, f := range grouped[key] {
 			if l.Long {
 				uploaded := time.UnixMilli(f.Uploaded).Format("Jan 2, 2006")
 				expires := time.UnixMilli(f.Expires).Format("Jan 2, 2006")
-				fmt.Fprintf(w, "  %s\t%s\t%s\t expires %s\n", f.Name, formatLsSize(f.Size), uploaded, expires)
+				fmt.Fprintf(w, "  %s\t%s\t%s\t%s\n", f.Name, formatLsSize(f.Size), uploaded, expires)
 			} else {
 				fmt.Fprintf(w, "  %s\n", f.Name)
 			}
