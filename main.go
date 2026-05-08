@@ -7,11 +7,12 @@ import (
 var version = "dev"
 
 var cli struct {
-	Login  LoginCmd  `cmd:"" help:"Authenticate with a Snake Can server."`
-	Logout LogoutCmd `cmd:"" help:"Sign out and revoke the stored token."`
-	Ls     LsCmd     `cmd:"" help:"List can files under a directory path."`
-	Rm     RmCmd     `cmd:"" help:"Upload files to the Snake Can."`
-	Status StatusCmd `cmd:"" help:"Show authentication and configuration status."`
+	Login   LoginCmd   `cmd:"" help:"Authenticate with a Snake Can server."`
+	Logout  LogoutCmd  `cmd:"" help:"Sign out and revoke the stored token."`
+	Ls      LsCmd      `cmd:"" help:"List can files under a directory path."`
+	Restore RestoreCmd `cmd:"" help:"Restore can files to their original local paths."`
+	Rm      RmCmd      `cmd:"" help:"Upload files to the Snake Can."`
+	Status  StatusCmd  `cmd:"" help:"Show authentication and configuration status."`
 }
 
 func main() {
