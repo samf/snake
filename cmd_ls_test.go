@@ -158,6 +158,51 @@ func TestLsCmd_LongOutput(t *testing.T) {
 	}
 }
 
+func TestLsCmd_TerseDedupByName(t *testing.T) {
+	dir := "/test/docs"
+	t1 := time.Date(2025, 6, 1, 12, 0, 0, 0, time.UTC).UnixMilli()
+	t2 := time.Date(2025, 1, 1, 12, 0, 0, 0, time.UTC).UnixMilli()
+	exp := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC).UnixMilli()
+	// Server returns two versions of report.pdf (newest first) and one notes.txt.
+	files := []lsFile{
+		{UUID: "u1", Name: "report.pdf", Size: 200, Path: strPtr(dir), Uploaded: t1, Expires: exp},
+		{UUID: "u2", Name: "report.pdf", Size: 100, Path: strPtr(dir), Uploaded: t2, Expires: exp},
+		{UUID: "u3", Name: "notes.txt", Size: 50, Path: strPtr(dir), Uploaded: t1, Expires: exp},
+	}
+	_, cfg := lsTestServer(t, files)
+
+	cmd := &LsCmd{Dir: dir, Long: false}
+	out := captureStdout(t, func() { cmd.Run(cfg) })
+
+	// report.pdf should appear exactly once.
+	if count := strings.Count(out, "report.pdf"); count != 1 {
+		t.Errorf("expected report.pdf once, got %d times in: %q", count, out)
+	}
+	if !strings.Contains(out, "notes.txt") {
+		t.Errorf("notes.txt missing from output: %q", out)
+	}
+}
+
+func TestLsCmd_LongShowsAllVersions(t *testing.T) {
+	dir := "/test/docs"
+	t1 := time.Date(2025, 6, 1, 12, 0, 0, 0, time.UTC).UnixMilli()
+	t2 := time.Date(2025, 1, 1, 12, 0, 0, 0, time.UTC).UnixMilli()
+	exp := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC).UnixMilli()
+	files := []lsFile{
+		{UUID: "u1", Name: "report.pdf", Size: 200, Path: strPtr(dir), Uploaded: t1, Expires: exp},
+		{UUID: "u2", Name: "report.pdf", Size: 100, Path: strPtr(dir), Uploaded: t2, Expires: exp},
+	}
+	_, cfg := lsTestServer(t, files)
+
+	cmd := &LsCmd{Dir: dir, Long: true}
+	out := captureStdout(t, func() { cmd.Run(cfg) })
+
+	// Both versions should appear in long mode.
+	if count := strings.Count(out, "report.pdf"); count != 2 {
+		t.Errorf("expected report.pdf twice in long mode, got %d times in: %q", count, out)
+	}
+}
+
 func TestFetchFilesByPath_RecursiveParam(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		got := r.URL.Query().Get("recursive")

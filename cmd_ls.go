@@ -111,12 +111,17 @@ func (l *LsCmd) Run(cfg *Config) error {
 			}
 			fmt.Fprintln(w, label)
 		}
+		seen := map[string]bool{}
 		for _, f := range grouped[key] {
 			if l.Long {
 				uploaded := time.UnixMilli(f.Uploaded).Format("Jan 2, 2006")
 				expires := time.UnixMilli(f.Expires).Format("Jan 2, 2006")
 				fmt.Fprintf(w, "  %s\t%s\t%s\t%s\n", f.Name, formatLsSize(f.Size), uploaded, expires)
 			} else {
+				if seen[f.Name] {
+					continue
+				}
+				seen[f.Name] = true
 				fmt.Fprintf(w, "  %s\n", f.Name)
 			}
 		}
