@@ -5,7 +5,9 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
+	"time"
 )
 
 func TestFormatLsSize(t *testing.T) {
@@ -89,6 +91,63 @@ func TestFetchFilesByPath_Paginated(t *testing.T) {
 	}
 	if calls != 2 {
 		t.Errorf("expected 2 HTTP calls, got %d", calls)
+	}
+}
+
+func lsTestServer(t *testing.T, files []lsFile) (*httptest.Server, *Config) {
+	t.Helper()
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, lsAPIResponse{Files: files})
+	}))
+	t.Cleanup(ts.Close)
+	return ts, &Config{Server: ts.URL, Token: "tok", CanID: "can-1"}
+}
+
+func TestLsCmd_TerseOutput(t *testing.T) {
+	dir := "/test/docs"
+	uploaded := time.Date(2025, 1, 15, 12, 0, 0, 0, time.UTC).UnixMilli()
+	expires := time.Date(2026, 1, 15, 12, 0, 0, 0, time.UTC).UnixMilli()
+	files := []lsFile{
+		{UUID: "u1", Name: "report.pdf", Size: 2048, Path: strPtr(dir), Uploaded: uploaded, Expires: expires},
+		{UUID: "u2", Name: "notes.txt", Size: 512, Path: strPtr(dir), Uploaded: uploaded, Expires: expires},
+	}
+	_, cfg := lsTestServer(t, files)
+
+	cmd := &LsCmd{Dir: dir, Long: false}
+	out := captureStdout(t, func() { cmd.Run(cfg) })
+
+	if !strings.Contains(out, "report.pdf") {
+		t.Errorf("terse output missing filename: %q", out)
+	}
+	if !strings.Contains(out, "notes.txt") {
+		t.Errorf("terse output missing filename: %q", out)
+	}
+	// Terse mode must not include size or date columns.
+	if strings.Contains(out, "KB") || strings.Contains(out, "MB") {
+		t.Errorf("terse output should not contain size: %q", out)
+	}
+	if strings.Contains(out, "2025") || strings.Contains(out, "2026") {
+		t.Errorf("terse output should not contain dates: %q", out)
+	}
+}
+
+func TestLsCmd_LongOutput(t *testing.T) {
+	dir := "/test/docs"
+	uploaded := time.Date(2025, 1, 15, 12, 0, 0, 0, time.UTC).UnixMilli()
+	expires := time.Date(2026, 3, 20, 12, 0, 0, 0, time.UTC).UnixMilli()
+	files := []lsFile{
+		{UUID: "u1", Name: "report.pdf", Size: 2 * 1024 * 1024, Path: strPtr(dir), Uploaded: uploaded, Expires: expires},
+	}
+	_, cfg := lsTestServer(t, files)
+
+	cmd := &LsCmd{Dir: dir, Long: true}
+	out := captureStdout(t, func() { cmd.Run(cfg) })
+
+	checks := []string{"report.pdf", "2.0 MB", "Jan 15, 2025", "Mar 20, 2026"}
+	for _, s := range checks {
+		if !strings.Contains(out, s) {
+			t.Errorf("long output missing %q in: %q", s, out)
+		}
 	}
 }
 
