@@ -259,6 +259,47 @@ func TestRestoreByUUID_NotFound(t *testing.T) {
 	}
 }
 
+func TestRestoreFile_PicksMostRecent(t *testing.T) {
+	dir := t.TempDir()
+
+	// Server returns two versions of foo.txt ordered newest-first (as the real
+	// server does: uploaded DESC). Each version has distinct content so we can
+	// tell which one was actually downloaded.
+	newerUUID := "uuid-newer"
+	olderUUID := "uuid-older"
+	newerContent := []byte("newer version")
+	olderContent := []byte("older version")
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/can/can-1/files" {
+			p := strPtr(dir)
+			files := []lsFile{
+				{UUID: newerUUID, Name: "foo.txt", Path: p, Uploaded: 2000},
+				{UUID: olderUUID, Name: "foo.txt", Path: p, Uploaded: 1000},
+			}
+			writeJSON(w, lsAPIResponse{Files: files})
+			return
+		}
+		// Download by UUID — return distinct content per version.
+		if strings.HasSuffix(r.URL.Path, newerUUID) {
+			w.Write(newerContent)
+		} else {
+			w.Write(olderContent)
+		}
+	}))
+	defer ts.Close()
+
+	cfg := &Config{Server: ts.URL, Token: "tok", CanID: "can-1"}
+	cmd := &RestoreCmd{}
+	if err := cmd.restoreFile(cfg, dir, "foo.txt"); err != nil {
+		t.Fatalf("restoreFile: %v", err)
+	}
+	got, _ := os.ReadFile(filepath.Join(dir, "foo.txt"))
+	if string(got) != string(newerContent) {
+		t.Errorf("got %q, want newer version %q", got, newerContent)
+	}
+}
+
 func TestRestoreFile_NotFoundInCan(t *testing.T) {
 	dir := t.TempDir()
 
