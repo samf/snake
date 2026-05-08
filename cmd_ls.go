@@ -93,7 +93,7 @@ func (l *LsCmd) Run(cfg *Config) error {
 
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
 	if l.Long {
-		fmt.Fprintf(w, "  %s\t%s\t%s\t%s\n", "Name", "Size", "Uploaded", "Expires")
+		fmt.Fprintf(w, "  %s\t%s\t%s\t%s\t%s\n", "Name", "Size", "Uploaded", "Expires", "UUID")
 	}
 	for i, key := range keys {
 		// In recursive mode, print a subdirectory header for paths other than the
@@ -116,7 +116,7 @@ func (l *LsCmd) Run(cfg *Config) error {
 			if l.Long {
 				uploaded := time.UnixMilli(f.Uploaded).Format("Jan 2, 2006")
 				expires := time.UnixMilli(f.Expires).Format("Jan 2, 2006")
-				fmt.Fprintf(w, "  %s\t%s\t%s\t%s\n", f.Name, formatLsSize(f.Size), uploaded, expires)
+				fmt.Fprintf(w, "  %s\t%s\t%s\t%s\t%s\n", f.Name, formatLsSize(f.Size), uploaded, expires, f.UUID)
 			} else {
 				if seen[f.Name] {
 					continue

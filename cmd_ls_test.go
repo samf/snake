@@ -146,7 +146,7 @@ func TestLsCmd_LongOutput(t *testing.T) {
 	cmd := &LsCmd{Dir: dir, Long: true}
 	out := captureStdout(t, func() { cmd.Run(cfg) })
 
-	checks := []string{"Name", "Size", "Uploaded", "Expires", "report.pdf", "2.0 MB", "Jan 15, 2025", "Mar 20, 2026"}
+	checks := []string{"Name", "Size", "Uploaded", "Expires", "UUID", "report.pdf", "2.0 MB", "Jan 15, 2025", "Mar 20, 2026", "u1"}
 	for _, s := range checks {
 		if !strings.Contains(out, s) {
 			t.Errorf("long output missing %q in: %q", s, out)
