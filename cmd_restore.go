@@ -9,7 +9,7 @@ import (
 )
 
 type RestoreCmd struct {
-	Dir       string `arg:"" optional:"" help:"Directory to restore from (default: current directory)."`
+	Path      string `arg:"" optional:"" help:"File or directory to restore (default: current directory)."`
 	Recursive bool   `short:"r" help:"Include files in subdirectories."`
 }
 
@@ -26,26 +26,30 @@ func (r *RestoreCmd) Run(cfg *Config) error {
 		fmt.Fprintf(os.Stderr, "using can: %s (%s)\n", name, id)
 	}
 
-	dir := r.Dir
-	if dir == "" {
-		var err error
-		dir, err = os.Getwd()
+	if r.Path == "" {
+		dir, err := os.Getwd()
 		if err != nil {
 			return fmt.Errorf("could not determine current directory: %w", err)
 		}
-	} else {
-		abs, err := filepath.Abs(dir)
-		if err != nil {
-			return fmt.Errorf("%s: %w", dir, err)
-		}
-		dir = abs
+		return r.restoreDir(cfg, dir)
 	}
 
+	abs, err := filepath.Abs(r.Path)
+	if err != nil {
+		return fmt.Errorf("%s: %w", r.Path, err)
+	}
+
+	if info, err := os.Stat(abs); err == nil && info.IsDir() {
+		return r.restoreDir(cfg, abs)
+	}
+	return r.restoreFile(cfg, filepath.Dir(abs), filepath.Base(abs))
+}
+
+func (r *RestoreCmd) restoreDir(cfg *Config, dir string) error {
 	files, err := fetchFilesByPath(cfg, dir, r.Recursive)
 	if err != nil {
 		return err
 	}
-
 	if len(files) == 0 {
 		if r.Recursive {
 			fmt.Printf("no files under %s\n", dir)
@@ -54,7 +58,6 @@ func (r *RestoreCmd) Run(cfg *Config) error {
 		}
 		return nil
 	}
-
 	for _, f := range files {
 		destDir := dir
 		if f.Path != nil && *f.Path != "" {
@@ -68,6 +71,31 @@ func (r *RestoreCmd) Run(cfg *Config) error {
 		}
 		fmt.Println("done")
 	}
+	return nil
+}
+
+func (r *RestoreCmd) restoreFile(cfg *Config, dir, name string) error {
+	files, err := fetchFilesByPath(cfg, dir, false)
+	if err != nil {
+		return err
+	}
+	var match *lsFile
+	for i, f := range files {
+		if f.Name == name {
+			match = &files[i]
+			break
+		}
+	}
+	if match == nil {
+		return fmt.Errorf("%s: not found in the can", name)
+	}
+	dest := filepath.Join(dir, name)
+	fmt.Printf("restoring %s... ", dest)
+	if err := downloadFile(cfg, match.UUID, dest); err != nil {
+		fmt.Println("failed")
+		return fmt.Errorf("%s: %w", name, err)
+	}
+	fmt.Println("done")
 	return nil
 }
 
