@@ -2,6 +2,8 @@ package main
 
 import (
 	"bytes"
+	"crypto/md5"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -50,8 +52,12 @@ func (r *RmCmd) Run(cfg *Config) error {
 		}
 		name := filepath.Base(abs)
 		dir := filepath.Dir(abs)
+		checksum, err := fileMD5(abs)
+		if err != nil {
+			return fmt.Errorf("%s: %w", path, err)
+		}
 		fmt.Printf("uploading %s... ", name)
-		if err := uploadFile(cfg, abs, name, dir); err != nil {
+		if err := uploadFile(cfg, abs, name, dir, checksum); err != nil {
 			fmt.Println("failed")
 			return fmt.Errorf("%s: %w", path, err)
 		}
@@ -80,7 +86,20 @@ func detectMIME(path string) string {
 	return http.DetectContentType(buf[:n])
 }
 
-func uploadFile(cfg *Config, path, name, dir string) error {
+func fileMD5(path string) (string, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return "", err
+	}
+	defer f.Close()
+	h := md5.New()
+	if _, err := io.Copy(h, f); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(h.Sum(nil)), nil
+}
+
+func uploadFile(cfg *Config, path, name, dir, checksum string) error {
 	contentType := detectMIME(path)
 
 	f, err := os.Open(path)
@@ -111,6 +130,9 @@ func uploadFile(cfg *Config, path, name, dir string) error {
 	if err := mw.WriteField("client", "snake"); err != nil {
 		return err
 	}
+	if err := mw.WriteField("checksum", checksum); err != nil {
+		return err
+	}
 	if err := mw.Close(); err != nil {
 		return err
 	}
@@ -129,6 +151,9 @@ func uploadFile(cfg *Config, path, name, dir string) error {
 	}
 	defer resp.Body.Close()
 
+	if resp.StatusCode == http.StatusConflict {
+		return fmt.Errorf("already in the can (unchanged)")
+	}
 	if resp.StatusCode != http.StatusOK {
 		var errResp struct {
 			Error string `json:"error"`
