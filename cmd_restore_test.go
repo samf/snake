@@ -5,6 +5,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -145,6 +146,116 @@ func TestRestoreFile_ForceOverwrites(t *testing.T) {
 	got, _ := os.ReadFile(existing)
 	if string(got) != string(newContent) {
 		t.Errorf("got %q, want %q", got, newContent)
+	}
+}
+
+func TestIsUUID(t *testing.T) {
+	valid := []string{
+		"550e8400-e29b-41d4-a716-446655440000",
+		"550E8400-E29B-41D4-A716-446655440000",
+	}
+	invalid := []string{
+		"foo.txt",
+		"subdir/foo.txt",
+		"550e8400-e29b-41d4-a716",          // too short
+		"550e8400-e29b-41d4-a716-44665544000g", // invalid char
+		"",
+	}
+	for _, s := range valid {
+		if !isUUID(s) {
+			t.Errorf("isUUID(%q) = false, want true", s)
+		}
+	}
+	for _, s := range invalid {
+		if isUUID(s) {
+			t.Errorf("isUUID(%q) = true, want false", s)
+		}
+	}
+}
+
+func TestRestoreByUUID_Success(t *testing.T) {
+	dir := t.TempDir()
+	uuid := "550e8400-e29b-41d4-a716-446655440000"
+	content := []byte("file content by uuid")
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/info") {
+			writeJSON(w, lsFile{UUID: uuid, Name: "report.pdf", Path: strPtr(dir)})
+		} else {
+			w.Write(content)
+		}
+	}))
+	defer ts.Close()
+
+	cfg := &Config{Server: ts.URL, Token: "tok", CanID: "can-1"}
+	cmd := &RestoreCmd{}
+	if err := cmd.restoreByUUID(cfg, uuid); err != nil {
+		t.Fatalf("restoreByUUID: %v", err)
+	}
+	got, _ := os.ReadFile(filepath.Join(dir, "report.pdf"))
+	if string(got) != string(content) {
+		t.Errorf("got %q, want %q", got, content)
+	}
+}
+
+func TestRestoreByUUID_BlocksExisting(t *testing.T) {
+	dir := t.TempDir()
+	uuid := "550e8400-e29b-41d4-a716-446655440000"
+	os.WriteFile(filepath.Join(dir, "report.pdf"), []byte("old"), 0600)
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/info") {
+			writeJSON(w, lsFile{UUID: uuid, Name: "report.pdf", Path: strPtr(dir)})
+		} else {
+			t.Error("unexpected download call")
+		}
+	}))
+	defer ts.Close()
+
+	cfg := &Config{Server: ts.URL, Token: "tok", CanID: "can-1"}
+	cmd := &RestoreCmd{}
+	if err := cmd.restoreByUUID(cfg, uuid); err == nil {
+		t.Fatal("expected error for existing file, got nil")
+	}
+}
+
+func TestRestoreByUUID_ForceOverwrites(t *testing.T) {
+	dir := t.TempDir()
+	uuid := "550e8400-e29b-41d4-a716-446655440000"
+	os.WriteFile(filepath.Join(dir, "report.pdf"), []byte("old"), 0600)
+	newContent := []byte("new content")
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/info") {
+			writeJSON(w, lsFile{UUID: uuid, Name: "report.pdf", Path: strPtr(dir)})
+		} else {
+			w.Write(newContent)
+		}
+	}))
+	defer ts.Close()
+
+	cfg := &Config{Server: ts.URL, Token: "tok", CanID: "can-1"}
+	cmd := &RestoreCmd{Force: true}
+	if err := cmd.restoreByUUID(cfg, uuid); err != nil {
+		t.Fatalf("restoreByUUID with force: %v", err)
+	}
+	got, _ := os.ReadFile(filepath.Join(dir, "report.pdf"))
+	if string(got) != string(newContent) {
+		t.Errorf("got %q, want %q", got, newContent)
+	}
+}
+
+func TestRestoreByUUID_NotFound(t *testing.T) {
+	uuid := "550e8400-e29b-41d4-a716-446655440000"
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer ts.Close()
+
+	cfg := &Config{Server: ts.URL, Token: "tok", CanID: "can-1"}
+	cmd := &RestoreCmd{}
+	if err := cmd.restoreByUUID(cfg, uuid); err == nil {
+		t.Fatal("expected error for 404, got nil")
 	}
 }
 
