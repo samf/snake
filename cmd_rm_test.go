@@ -138,6 +138,55 @@ func TestUploadFile_Duplicate(t *testing.T) {
 	}
 }
 
+func TestRmCmd_ValidateRejectsDirWithoutFlag(t *testing.T) {
+	dir := t.TempDir()
+	cmd := &RmCmd{Files: []string{dir}, Recursive: false}
+	if err := cmd.Validate(); err == nil {
+		t.Fatal("expected error for directory without -r, got nil")
+	}
+}
+
+func TestRmCmd_RecursiveUploadsAndDeletes(t *testing.T) {
+	dir := t.TempDir()
+	subdir := filepath.Join(dir, "sub")
+	os.Mkdir(subdir, 0755)
+
+	os.WriteFile(filepath.Join(dir, "a.txt"), []byte("aaa"), 0600)
+	os.WriteFile(filepath.Join(subdir, "b.txt"), []byte("bbb"), 0600)
+
+	uploaded := map[string]bool{}
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := r.ParseMultipartForm(1 << 20); err != nil {
+			t.Errorf("ParseMultipartForm: %v", err)
+		}
+		fh := r.MultipartForm.File["file"]
+		if len(fh) > 0 {
+			uploaded[fh[0].Filename] = true
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer ts.Close()
+
+	cfg := &Config{Server: ts.URL, Token: "tok", CanID: "can-1"}
+	cmd := &RmCmd{Files: []string{dir}, Recursive: true}
+	if err := cmd.Run(cfg); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+
+	for _, name := range []string{"a.txt", "b.txt"} {
+		if !uploaded[name] {
+			t.Errorf("expected %s to be uploaded", name)
+		}
+	}
+	// Local files should be gone.
+	if _, err := os.Stat(filepath.Join(dir, "a.txt")); err == nil {
+		t.Error("a.txt should have been deleted")
+	}
+	if _, err := os.Stat(filepath.Join(subdir, "b.txt")); err == nil {
+		t.Error("b.txt should have been deleted")
+	}
+}
+
 func TestUploadFile_QuotaExceeded(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Consume the multipart body.

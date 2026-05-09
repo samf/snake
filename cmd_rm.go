@@ -17,7 +17,8 @@ import (
 )
 
 type RmCmd struct {
-	Files []string `arg:"" name:"file" help:"Files to send to the Snake Can." min:"1"`
+	Files     []string `arg:"" name:"file" help:"Files or directories to send to the Snake Can." min:"1"`
+	Recursive bool     `short:"r" help:"Recursively process directories."`
 }
 
 func (r *RmCmd) Validate() error {
@@ -26,7 +27,11 @@ func (r *RmCmd) Validate() error {
 		if err != nil {
 			return fmt.Errorf("%s: %w", path, err)
 		}
-		if !info.Mode().IsRegular() {
+		if info.IsDir() {
+			if !r.Recursive {
+				return fmt.Errorf("%s: is a directory (use -r to recurse)", path)
+			}
+		} else if !info.Mode().IsRegular() {
 			return fmt.Errorf("%s: not a regular file", path)
 		}
 	}
@@ -50,23 +55,52 @@ func (r *RmCmd) Run(cfg *Config) error {
 		if err != nil {
 			return fmt.Errorf("%s: %w", path, err)
 		}
-		name := filepath.Base(abs)
-		dir := filepath.Dir(abs)
-		checksum, err := fileMD5(abs)
+		info, err := os.Stat(abs)
 		if err != nil {
 			return fmt.Errorf("%s: %w", path, err)
 		}
-		fmt.Printf("uploading %s... ", name)
-		if err := uploadFile(cfg, abs, name, dir, checksum); err != nil {
-			fmt.Println("failed")
-			return fmt.Errorf("%s: %w", path, err)
+		if info.IsDir() {
+			if err := r.rmDir(cfg, abs); err != nil {
+				return err
+			}
+		} else {
+			if err := r.rmFile(cfg, abs); err != nil {
+				return err
+			}
 		}
-		if err := os.Remove(abs); err != nil {
-			fmt.Println("uploaded, but could not remove local file")
-			return fmt.Errorf("%s: %w", path, err)
-		}
-		fmt.Println("done")
 	}
+	return nil
+}
+
+func (r *RmCmd) rmDir(cfg *Config, dir string) error {
+	return filepath.WalkDir(dir, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if !d.Type().IsRegular() {
+			return nil
+		}
+		return r.rmFile(cfg, path)
+	})
+}
+
+func (r *RmCmd) rmFile(cfg *Config, abs string) error {
+	name := filepath.Base(abs)
+	dir := filepath.Dir(abs)
+	checksum, err := fileMD5(abs)
+	if err != nil {
+		return fmt.Errorf("%s: %w", abs, err)
+	}
+	fmt.Printf("uploading %s... ", name)
+	if err := uploadFile(cfg, abs, name, dir, checksum); err != nil {
+		fmt.Println("failed")
+		return fmt.Errorf("%s: %w", abs, err)
+	}
+	if err := os.Remove(abs); err != nil {
+		fmt.Println("uploaded, but could not remove local file")
+		return fmt.Errorf("%s: %w", abs, err)
+	}
+	fmt.Println("done")
 	return nil
 }
 
