@@ -51,6 +51,11 @@ func (r *RestoreCmd) Run(cfg *Config) error {
 		return fmt.Errorf("%s: %w", r.Path, err)
 	}
 
+	// A trailing separator means the user explicitly named a directory,
+	// even if it doesn't exist locally yet.
+	if strings.HasSuffix(r.Path, "/") || strings.HasSuffix(r.Path, string(filepath.Separator)) {
+		return r.restoreDir(cfg, abs)
+	}
 	if info, err := os.Stat(abs); err == nil && info.IsDir() {
 		return r.restoreDir(cfg, abs)
 	}
