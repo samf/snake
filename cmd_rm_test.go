@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -187,6 +188,26 @@ func TestRmCmd_RecursiveUploadsAndDeletes(t *testing.T) {
 	}
 	if _, err := os.Stat(dir); err == nil {
 		t.Error("directory should have been removed")
+	}
+}
+
+func TestRmCmd_RecursiveEmptyDir(t *testing.T) {
+	dir := t.TempDir()
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Error("unexpected upload call for empty directory")
+	}))
+	defer ts.Close()
+
+	cfg := &Config{Server: ts.URL, Token: "tok", CanID: "can-1"}
+	cmd := &RmCmd{Files: []string{dir}, Recursive: true}
+	out := captureStdout(t, func() { cmd.Run(cfg) })
+
+	if !strings.Contains(out, "no files") {
+		t.Errorf("expected 'no files' notice, got: %q", out)
+	}
+	if _, err := os.Stat(dir); err == nil {
+		t.Error("empty directory should have been removed")
 	}
 }
 
