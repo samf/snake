@@ -73,6 +73,7 @@ func (r *RmCmd) Run(cfg *Config) error {
 }
 
 func (r *RmCmd) rmDir(cfg *Config, dir string) error {
+	fileCount := 0
 	if err := filepath.WalkDir(dir, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
 			return err
@@ -80,9 +81,13 @@ func (r *RmCmd) rmDir(cfg *Config, dir string) error {
 		if !d.Type().IsRegular() {
 			return nil
 		}
+		fileCount++
 		return r.rmFile(cfg, path)
 	}); err != nil {
 		return err
+	}
+	if fileCount == 0 {
+		fmt.Printf("no files in %s\n", dir)
 	}
 	return os.RemoveAll(dir)
 }
