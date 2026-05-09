@@ -410,6 +410,35 @@ func TestRestoreDir_RecursiveIncludesAllDepths(t *testing.T) {
 	}
 }
 
+func TestRestoreRun_NoSlashNoLocalDir_TreatedAsDir(t *testing.T) {
+	// No trailing slash and no local directory — server has files at that path,
+	// so it should route to restoreDir rather than restoreFile.
+	base := t.TempDir()
+	subdir := filepath.Join(base, "sub")
+	// Do NOT create subdir locally.
+
+	content := []byte("restored")
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/can/can-1/files" {
+			files := []lsFile{{UUID: "uuid-1", Name: "a.txt", Path: strPtr(subdir)}}
+			writeJSON(w, lsAPIResponse{Files: files})
+			return
+		}
+		w.Write(content)
+	}))
+	defer ts.Close()
+
+	cfg := &Config{Server: ts.URL, Token: "tok", CanID: "can-1"}
+	cmd := &RestoreCmd{Path: subdir} // no trailing slash
+	if err := cmd.Run(cfg); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	got, _ := os.ReadFile(filepath.Join(subdir, "a.txt"))
+	if string(got) != string(content) {
+		t.Errorf("got %q, want %q", got, content)
+	}
+}
+
 func TestRestoreRun_TrailingSlashTreatedAsDir(t *testing.T) {
 	// The target directory does not exist locally — the trailing slash must be
 	// enough to route to restoreDir rather than restoreFile.

@@ -59,6 +59,10 @@ func (r *RestoreCmd) Run(cfg *Config) error {
 	if info, err := os.Stat(abs); err == nil && info.IsDir() {
 		return r.restoreDir(cfg, abs)
 	}
+	// No local directory exists — check the server before assuming it's a file.
+	if files, err := fetchFilesByPath(cfg, abs, true); err == nil && len(files) > 0 {
+		return r.restoreDir(cfg, abs)
+	}
 	return r.restoreFile(cfg, filepath.Dir(abs), filepath.Base(abs))
 }
 
