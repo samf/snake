@@ -73,7 +73,7 @@ func (r *RmCmd) Run(cfg *Config) error {
 }
 
 func (r *RmCmd) rmDir(cfg *Config, dir string) error {
-	return filepath.WalkDir(dir, func(path string, d os.DirEntry, err error) error {
+	if err := filepath.WalkDir(dir, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
@@ -81,7 +81,10 @@ func (r *RmCmd) rmDir(cfg *Config, dir string) error {
 			return nil
 		}
 		return r.rmFile(cfg, path)
-	})
+	}); err != nil {
+		return err
+	}
+	return os.RemoveAll(dir)
 }
 
 func (r *RmCmd) rmFile(cfg *Config, abs string) error {

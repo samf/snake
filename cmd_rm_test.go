@@ -178,12 +178,15 @@ func TestRmCmd_RecursiveUploadsAndDeletes(t *testing.T) {
 			t.Errorf("expected %s to be uploaded", name)
 		}
 	}
-	// Local files should be gone.
+	// Files and the directory tree should be gone.
 	if _, err := os.Stat(filepath.Join(dir, "a.txt")); err == nil {
 		t.Error("a.txt should have been deleted")
 	}
 	if _, err := os.Stat(filepath.Join(subdir, "b.txt")); err == nil {
 		t.Error("b.txt should have been deleted")
+	}
+	if _, err := os.Stat(dir); err == nil {
+		t.Error("directory should have been removed")
 	}
 }
 
