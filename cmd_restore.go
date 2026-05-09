@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strings"
 )
 
 var uuidRe = regexp.MustCompile(`(?i)^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
@@ -57,10 +58,35 @@ func (r *RestoreCmd) Run(cfg *Config) error {
 }
 
 func (r *RestoreCmd) restoreDir(cfg *Config, dir string) error {
-	files, err := fetchFilesByPath(cfg, dir, r.Recursive)
+	// Always fetch recursively to discover immediate subdirectories.
+	allFiles, err := fetchFilesByPath(cfg, dir, true)
 	if err != nil {
 		return err
 	}
+
+	var files []lsFile
+	if r.Recursive {
+		files = allFiles
+	} else {
+		// Include files directly in dir and files in immediate subdirectories
+		// (one level deep), consistent with what snake ls shows.
+		dirPrefix := dir + string(filepath.Separator)
+		for _, f := range allFiles {
+			fPath := ""
+			if f.Path != nil {
+				fPath = *f.Path
+			}
+			if fPath == dir {
+				files = append(files, f)
+			} else if strings.HasPrefix(fPath, dirPrefix) {
+				rest := fPath[len(dirPrefix):]
+				if !strings.Contains(rest, string(filepath.Separator)) {
+					files = append(files, f)
+				}
+			}
+		}
+	}
+
 	if len(files) == 0 {
 		if r.Recursive {
 			fmt.Printf("no files under %s\n", dir)

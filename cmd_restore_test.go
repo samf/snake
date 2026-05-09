@@ -315,3 +315,97 @@ func TestRestoreFile_NotFoundInCan(t *testing.T) {
 		t.Fatal("expected error for file not in can, got nil")
 	}
 }
+
+func TestRestoreDir_RestoresImmediateSubdirs(t *testing.T) {
+	dir := t.TempDir()
+	subdir := filepath.Join(dir, "sub")
+
+	directContent := []byte("direct file")
+	subdirContent := []byte("subdir file")
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/can/can-1/files" {
+			files := []lsFile{
+				{UUID: "uuid-direct", Name: "a.txt", Path: strPtr(dir)},
+				{UUID: "uuid-sub", Name: "b.txt", Path: strPtr(subdir)},
+			}
+			writeJSON(w, lsAPIResponse{Files: files})
+			return
+		}
+		if strings.HasSuffix(r.URL.Path, "uuid-direct") {
+			w.Write(directContent)
+		} else {
+			w.Write(subdirContent)
+		}
+	}))
+	defer ts.Close()
+
+	cfg := &Config{Server: ts.URL, Token: "tok", CanID: "can-1"}
+	cmd := &RestoreCmd{}
+	if err := cmd.restoreDir(cfg, dir); err != nil {
+		t.Fatalf("restoreDir: %v", err)
+	}
+
+	got, _ := os.ReadFile(filepath.Join(dir, "a.txt"))
+	if string(got) != string(directContent) {
+		t.Errorf("a.txt: got %q, want %q", got, directContent)
+	}
+	got, _ = os.ReadFile(filepath.Join(subdir, "b.txt"))
+	if string(got) != string(subdirContent) {
+		t.Errorf("b.txt: got %q, want %q", got, subdirContent)
+	}
+}
+
+func TestRestoreDir_SkipsTwoLevelsDeep(t *testing.T) {
+	dir := t.TempDir()
+	deep := filepath.Join(dir, "sub", "subsub")
+
+	downloadCalled := false
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/can/can-1/files" {
+			files := []lsFile{
+				{UUID: "uuid-deep", Name: "c.txt", Path: strPtr(deep)},
+			}
+			writeJSON(w, lsAPIResponse{Files: files})
+			return
+		}
+		downloadCalled = true
+		w.Write([]byte("data"))
+	}))
+	defer ts.Close()
+
+	cfg := &Config{Server: ts.URL, Token: "tok", CanID: "can-1"}
+	cmd := &RestoreCmd{}
+	if err := cmd.restoreDir(cfg, dir); err != nil {
+		t.Fatalf("restoreDir: %v", err)
+	}
+	if downloadCalled {
+		t.Error("should not download a file two levels deep in non-recursive mode")
+	}
+}
+
+func TestRestoreDir_RecursiveIncludesAllDepths(t *testing.T) {
+	dir := t.TempDir()
+	deep := filepath.Join(dir, "sub", "subsub")
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/can/can-1/files" {
+			files := []lsFile{
+				{UUID: "uuid-deep", Name: "c.txt", Path: strPtr(deep)},
+			}
+			writeJSON(w, lsAPIResponse{Files: files})
+			return
+		}
+		w.Write([]byte("deep content"))
+	}))
+	defer ts.Close()
+
+	cfg := &Config{Server: ts.URL, Token: "tok", CanID: "can-1"}
+	cmd := &RestoreCmd{Recursive: true}
+	if err := cmd.restoreDir(cfg, dir); err != nil {
+		t.Fatalf("restoreDir -r: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(deep, "c.txt")); err != nil {
+		t.Errorf("expected deep file to be restored: %v", err)
+	}
+}
