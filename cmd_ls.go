@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"text/tabwriter"
 	"time"
 )
@@ -62,7 +63,8 @@ func (l *LsCmd) Run(cfg *Config) error {
 		dir = abs
 	}
 
-	files, err := fetchFilesByPath(cfg, dir, l.Recursive)
+	// Always fetch recursively so we can detect immediate subdirectories.
+	files, err := fetchFilesByPath(cfg, dir, true)
 	if err != nil {
 		return err
 	}
@@ -76,54 +78,110 @@ func (l *LsCmd) Run(cfg *Config) error {
 		return nil
 	}
 
-	// Group by path for display.
-	grouped := map[string][]lsFile{}
-	var keys []string
-	for _, f := range files {
-		p := ""
-		if f.Path != nil {
-			p = *f.Path
-		}
-		if _, seen := grouped[p]; !seen {
-			keys = append(keys, p)
-		}
-		grouped[p] = append(grouped[p], f)
-	}
-	sort.Strings(keys)
-
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
+
+	if l.Recursive {
+		// Group by path and show each group with a subdir header.
+		grouped := map[string][]lsFile{}
+		var keys []string
+		for _, f := range files {
+			p := ""
+			if f.Path != nil {
+				p = *f.Path
+			}
+			if _, seen := grouped[p]; !seen {
+				keys = append(keys, p)
+			}
+			grouped[p] = append(grouped[p], f)
+		}
+		sort.Strings(keys)
+
+		if l.Long {
+			fmt.Fprintf(w, "  %s\t%s\t%s\t%s\t%s\n", "Name", "Size", "Uploaded", "Expires", "UUID")
+		}
+		for i, key := range keys {
+			if key != dir {
+				if i > 0 {
+					fmt.Fprintln(w)
+				}
+				label := key
+				if rel, err := filepath.Rel(dir, key); err == nil {
+					label = rel
+				}
+				if label == "" {
+					label = "(no path)"
+				}
+				fmt.Fprintln(w, label)
+			}
+			seen := map[string]bool{}
+			for _, f := range grouped[key] {
+				if l.Long {
+					uploaded := time.UnixMilli(f.Uploaded).Format("Jan 2, 2006")
+					expires := time.UnixMilli(f.Expires).Format("Jan 2, 2006")
+					fmt.Fprintf(w, "  %s\t%s\t%s\t%s\t%s\n", f.Name, formatLsSize(f.Size), uploaded, expires, f.UUID)
+				} else {
+					if seen[f.Name] {
+						continue
+					}
+					seen[f.Name] = true
+					fmt.Fprintf(w, "  %s\n", f.Name)
+				}
+			}
+		}
+		w.Flush()
+		return nil
+	}
+
+	// Non-recursive: separate files in this exact directory from files deeper
+	// in the tree. For deeper files, expose only the immediate child directory.
+	dirPrefix := dir + string(filepath.Separator)
+	var directFiles []lsFile
+	seenDirs := map[string]bool{}
+	var subdirNames []string
+
+	for _, f := range files {
+		fPath := ""
+		if f.Path != nil {
+			fPath = *f.Path
+		}
+		if fPath == dir {
+			directFiles = append(directFiles, f)
+		} else if strings.HasPrefix(fPath, dirPrefix) {
+			child := strings.SplitN(fPath[len(dirPrefix):], string(filepath.Separator), 2)[0]
+			if !seenDirs[child] {
+				seenDirs[child] = true
+				subdirNames = append(subdirNames, child)
+			}
+		}
+	}
+	sort.Strings(subdirNames)
+
 	if l.Long {
 		fmt.Fprintf(w, "  %s\t%s\t%s\t%s\t%s\n", "Name", "Size", "Uploaded", "Expires", "UUID")
-	}
-	for i, key := range keys {
-		// In recursive mode, print a subdirectory header for paths other than the
-		// requested directory. Use a relative path to keep output concise.
-		if l.Recursive && key != dir {
-			if i > 0 {
-				fmt.Fprintln(w)
-			}
-			label := key
-			if rel, err := filepath.Rel(dir, key); err == nil {
-				label = rel
-			}
-			if label == "" {
-				label = "(no path)"
-			}
-			fmt.Fprintln(w, label)
+		for _, f := range directFiles {
+			uploaded := time.UnixMilli(f.Uploaded).Format("Jan 2, 2006")
+			expires := time.UnixMilli(f.Expires).Format("Jan 2, 2006")
+			fmt.Fprintf(w, "  %s\t%s\t%s\t%s\t%s\n", f.Name, formatLsSize(f.Size), uploaded, expires, f.UUID)
 		}
+		for _, d := range subdirNames {
+			fmt.Fprintf(w, "  %s/\t—\t—\t—\t—\n", d)
+		}
+	} else {
+		type entry struct{ name string }
+		var entries []entry
 		seen := map[string]bool{}
-		for _, f := range grouped[key] {
-			if l.Long {
-				uploaded := time.UnixMilli(f.Uploaded).Format("Jan 2, 2006")
-				expires := time.UnixMilli(f.Expires).Format("Jan 2, 2006")
-				fmt.Fprintf(w, "  %s\t%s\t%s\t%s\t%s\n", f.Name, formatLsSize(f.Size), uploaded, expires, f.UUID)
-			} else {
-				if seen[f.Name] {
-					continue
-				}
+		for _, f := range directFiles {
+			if !seen[f.Name] {
 				seen[f.Name] = true
-				fmt.Fprintf(w, "  %s\n", f.Name)
+				entries = append(entries, entry{f.Name})
 			}
+		}
+		for _, d := range subdirNames {
+			entries = append(entries, entry{d + "/"})
+		}
+		sort.Slice(entries, func(i, j int) bool { return entries[i].name < entries[j].name })
+		for _, e := range entries {
+			fmt.Fprintf(w, "  %s\n", e.name)
 		}
 	}
 	w.Flush()

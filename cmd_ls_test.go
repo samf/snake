@@ -203,6 +203,89 @@ func TestLsCmd_LongShowsAllVersions(t *testing.T) {
 	}
 }
 
+func TestLsCmd_TerseShowsSubdirs(t *testing.T) {
+	dir := "/home/user"
+	uploaded := time.Date(2025, 1, 1, 12, 0, 0, 0, time.UTC).UnixMilli()
+	exp := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC).UnixMilli()
+	files := []lsFile{
+		{UUID: "u1", Name: "a.txt", Size: 100, Path: strPtr(dir), Uploaded: uploaded, Expires: exp},
+		{UUID: "u2", Name: "b.txt", Size: 200, Path: strPtr(dir + "/subdir/subdir2"), Uploaded: uploaded, Expires: exp},
+	}
+	_, cfg := lsTestServer(t, files)
+
+	cmd := &LsCmd{Dir: dir, Long: false}
+	out := captureStdout(t, func() { cmd.Run(cfg) })
+
+	if !strings.Contains(out, "a.txt") {
+		t.Errorf("expected a.txt in output: %q", out)
+	}
+	if !strings.Contains(out, "subdir/") {
+		t.Errorf("expected subdir/ in output: %q", out)
+	}
+	if strings.Contains(out, "b.txt") {
+		t.Errorf("should not show b.txt directly: %q", out)
+	}
+	if strings.Contains(out, "subdir2") {
+		t.Errorf("should not show subdir2 directly: %q", out)
+	}
+}
+
+func TestLsCmd_LongShowsSubdirs(t *testing.T) {
+	dir := "/home/user"
+	uploaded := time.Date(2025, 1, 1, 12, 0, 0, 0, time.UTC).UnixMilli()
+	exp := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC).UnixMilli()
+	files := []lsFile{
+		{UUID: "u1", Name: "a.txt", Size: 1024, Path: strPtr(dir), Uploaded: uploaded, Expires: exp},
+		{UUID: "u2", Name: "z.txt", Size: 200, Path: strPtr(dir + "/subdir"), Uploaded: uploaded, Expires: exp},
+		{UUID: "u3", Name: "c.txt", Size: 300, Path: strPtr(dir + "/other"), Uploaded: uploaded, Expires: exp},
+	}
+	_, cfg := lsTestServer(t, files)
+
+	cmd := &LsCmd{Dir: dir, Long: true}
+	out := captureStdout(t, func() { cmd.Run(cfg) })
+
+	if !strings.Contains(out, "a.txt") {
+		t.Errorf("expected a.txt: %q", out)
+	}
+	if !strings.Contains(out, "subdir/") {
+		t.Errorf("expected subdir/: %q", out)
+	}
+	if !strings.Contains(out, "other/") {
+		t.Errorf("expected other/: %q", out)
+	}
+	if strings.Contains(out, "z.txt") || strings.Contains(out, "c.txt") {
+		t.Errorf("should not show files inside subdirs: %q", out)
+	}
+}
+
+func TestLsCmd_SubdirAlphabeticalOrder(t *testing.T) {
+	dir := "/home/user"
+	uploaded := time.Date(2025, 1, 1, 12, 0, 0, 0, time.UTC).UnixMilli()
+	exp := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC).UnixMilli()
+	files := []lsFile{
+		{UUID: "u1", Name: "zebra.txt", Size: 10, Path: strPtr(dir), Uploaded: uploaded, Expires: exp},
+		{UUID: "u2", Name: "x.txt", Size: 10, Path: strPtr(dir + "/beta"), Uploaded: uploaded, Expires: exp},
+		{UUID: "u3", Name: "x.txt", Size: 10, Path: strPtr(dir + "/alpha"), Uploaded: uploaded, Expires: exp},
+	}
+	_, cfg := lsTestServer(t, files)
+
+	cmd := &LsCmd{Dir: dir, Long: false}
+	out := captureStdout(t, func() { cmd.Run(cfg) })
+
+	alphaPos := strings.Index(out, "alpha/")
+	betaPos := strings.Index(out, "beta/")
+	zebraPos := strings.Index(out, "zebra.txt")
+	if alphaPos == -1 || betaPos == -1 || zebraPos == -1 {
+		t.Fatalf("missing entries in output: %q", out)
+	}
+	if alphaPos > betaPos {
+		t.Errorf("alpha/ should appear before beta/ in output: %q", out)
+	}
+	if zebraPos < alphaPos {
+		t.Errorf("zebra.txt should appear after alpha/ (alphabetical): got zebra at %d, alpha at %d", zebraPos, alphaPos)
+	}
+}
+
 func TestFetchFilesByPath_RecursiveParam(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		got := r.URL.Query().Get("recursive")
