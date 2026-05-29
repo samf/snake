@@ -30,6 +30,6 @@ brews:
       owner: samf
       name: homebrew-samf
       token: "{{ .Env.GH_PAT }}"
-    directory: "."
+    directory: "Formula"
     test: |
       system "#{bin}/snake", "--help"
