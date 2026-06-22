@@ -22,13 +22,23 @@ type RmCmd struct {
 }
 
 func (r *RmCmd) Validate() error {
-	for _, path := range r.Files {
+	return validatePaths(r.Files, r.Recursive)
+}
+
+func (r *RmCmd) Run(cfg *Config) error {
+	return uploadPaths(cfg, r.Files, r.Recursive, true)
+}
+
+// validatePaths checks that each path exists and is a regular file, or a
+// directory when recursion is allowed.
+func validatePaths(files []string, recursive bool) error {
+	for _, path := range files {
 		info, err := os.Stat(path)
 		if err != nil {
 			return fmt.Errorf("%s: %w", path, err)
 		}
 		if info.IsDir() {
-			if !r.Recursive {
+			if !recursive {
 				return fmt.Errorf("%s: is a directory (use -r to recurse)", path)
 			}
 		} else if !info.Mode().IsRegular() {
@@ -38,7 +48,9 @@ func (r *RmCmd) Validate() error {
 	return nil
 }
 
-func (r *RmCmd) Run(cfg *Config) error {
+// uploadPaths uploads each of the given files or directories. When remove is
+// true the local copies are deleted after a successful upload.
+func uploadPaths(cfg *Config, files []string, recursive, remove bool) error {
 	if cfg == nil {
 		return fmt.Errorf("not authenticated — run 'snake login'")
 	}
@@ -50,7 +62,7 @@ func (r *RmCmd) Run(cfg *Config) error {
 		cfg.CanID = id
 		fmt.Printf("Using can: %s (%s)\n", name, id)
 	}
-	for _, path := range r.Files {
+	for _, path := range files {
 		abs, err := filepath.Abs(path)
 		if err != nil {
 			return fmt.Errorf("%s: %w", path, err)
@@ -60,11 +72,11 @@ func (r *RmCmd) Run(cfg *Config) error {
 			return fmt.Errorf("%s: %w", path, err)
 		}
 		if info.IsDir() {
-			if err := r.rmDir(cfg, abs); err != nil {
+			if err := uploadDir(cfg, abs, remove); err != nil {
 				return err
 			}
 		} else {
-			if err := r.rmFile(cfg, abs); err != nil {
+			if err := uploadOne(cfg, abs, remove); err != nil {
 				return err
 			}
 		}
@@ -72,7 +84,7 @@ func (r *RmCmd) Run(cfg *Config) error {
 	return nil
 }
 
-func (r *RmCmd) rmDir(cfg *Config, dir string) error {
+func uploadDir(cfg *Config, dir string, remove bool) error {
 	fileCount := 0
 	if err := filepath.WalkDir(dir, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
@@ -82,17 +94,20 @@ func (r *RmCmd) rmDir(cfg *Config, dir string) error {
 			return nil
 		}
 		fileCount++
-		return r.rmFile(cfg, path)
+		return uploadOne(cfg, path, remove)
 	}); err != nil {
 		return err
 	}
 	if fileCount == 0 {
 		fmt.Printf("no files in %s\n", dir)
 	}
-	return os.RemoveAll(dir)
+	if remove {
+		return os.RemoveAll(dir)
+	}
+	return nil
 }
 
-func (r *RmCmd) rmFile(cfg *Config, abs string) error {
+func uploadOne(cfg *Config, abs string, remove bool) error {
 	name := filepath.Base(abs)
 	dir := filepath.Dir(abs)
 	checksum, err := fileMD5(abs)
@@ -104,9 +119,11 @@ func (r *RmCmd) rmFile(cfg *Config, abs string) error {
 		fmt.Println("failed")
 		return fmt.Errorf("%s: %w", abs, err)
 	}
-	if err := os.Remove(abs); err != nil {
-		fmt.Println("uploaded, but could not remove local file")
-		return fmt.Errorf("%s: %w", abs, err)
+	if remove {
+		if err := os.Remove(abs); err != nil {
+			fmt.Println("uploaded, but could not remove local file")
+			return fmt.Errorf("%s: %w", abs, err)
+		}
 	}
 	fmt.Println("done")
 	return nil

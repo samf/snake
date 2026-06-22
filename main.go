@@ -11,7 +11,8 @@ var cli struct {
 	Logout  LogoutCmd  `cmd:"" help:"Sign out and revoke the stored token."`
 	Ls      LsCmd      `cmd:"" help:"List can files under a directory path."`
 	Restore RestoreCmd `cmd:"" help:"Restore can files to their original local paths."`
-	Rm      RmCmd      `cmd:"" help:"Upload files to the Snake Can."`
+	Rm      RmCmd      `cmd:"" help:"Upload files to the Snake Can and remove the local copies."`
+	Upload  UploadCmd  `cmd:"" help:"Upload files to the Snake Can without removing them."`
 	Status  StatusCmd  `cmd:"" help:"Show authentication and configuration status."`
 }
 
